@@ -778,7 +778,7 @@ _add_shadowsocks_xray() {
     local inbound=$(jq -n --arg tag "$tag" --argjson port "$port" --arg m "$method" --arg pw "$password" \
         '{
             tag: $tag,
-            listen: "::",
+            listen: "0.0.0.0",
             port: $port,
             protocol: "shadowsocks",
             settings: {
@@ -847,7 +847,7 @@ _add_shadowsocks_2022_reality_xray() {
         --argjson stream "$stream" \
         '{
             tag: $tag,
-            listen: "::",
+            listen: "0.0.0.0",
             port: $port,
             protocol: "shadowsocks",
             settings: {
