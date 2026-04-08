@@ -436,7 +436,7 @@ _build_reality_stream() {
             "security": "reality",
             "realitySettings": {
                 "show": false,
-                "dest": ($sni + ":443"),
+                "target": ($sni + ":443"),
                 "xver": 0,
                 "serverNames": [$sni],
                 "privateKey": $pk,
