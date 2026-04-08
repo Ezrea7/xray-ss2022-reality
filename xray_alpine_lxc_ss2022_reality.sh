@@ -2,11 +2,12 @@
 set -euo pipefail
 
 # ============================================================
-# xray_alpine_lxc_ss2022_reality_v1_7.sh
+# xray_alpine_lxc_ss2022_reality_v1_10.sh
 # 仅保留：
 #   1) Xray-core 安装/更新
 #   2) 添加 Shadowsocks 2022-blake3-aes-256-gcm + REALITY
-#   3) 卸载 Xray 与相关文件
+#   3) 重启 Xray
+#   4) 卸载 Xray 与相关文件
 # 目标：
 #   - Alpine 可用
 #   - LXC/OpenRC/无 init 环境可用
@@ -14,7 +15,7 @@ set -euo pipefail
 #   - 不额外加入无关功能
 # ============================================================
 
-SCRIPT_VERSION="1.7.0"
+SCRIPT_VERSION="1.11.0"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_DIR="/usr/local/etc/xray"
 XRAY_CONFIG="${XRAY_DIR}/config.json"
@@ -201,6 +202,50 @@ _manage_xray_service() {
     esac
 }
 
+_get_xray_version() {
+    if [ -x "$XRAY_BIN" ]; then
+        "$XRAY_BIN" version 2>/dev/null | head -1 | awk '{print $2}'
+    fi
+}
+
+_get_xray_node_count() {
+    if [ -f "$XRAY_CONFIG" ]; then
+        jq '.inbounds | length' "$XRAY_CONFIG" 2>/dev/null || echo "0"
+    else
+        echo "0"
+    fi
+}
+
+_get_xray_status_text() {
+    if [ ! -x "$XRAY_BIN" ]; then
+        printf '%b' "${RED}○ 未安装${NC}"
+        return 0
+    fi
+
+    local status_text="${YELLOW}○ 已停止${NC}"
+    case "$INIT_SYSTEM" in
+        systemd)
+            if systemctl is-active --quiet xray 2>/dev/null; then
+                status_text="${GREEN}● 运行中${NC}"
+            fi
+            ;;
+        openrc)
+            if rc-service xray status 2>/dev/null | grep -q "started"; then
+                status_text="${GREEN}● 运行中${NC}"
+            fi
+            ;;
+        *)
+            if [ -f "$XRAY_PID_FILE" ] && _is_running_pid "$(cat "$XRAY_PID_FILE" 2>/dev/null || true)"; then
+                status_text="${GREEN}● 运行中${NC}"
+            fi
+            ;;
+    esac
+
+    local node_count
+    node_count="$(_get_xray_node_count)"
+    printf '%b' "${status_text} (${node_count}节点)"
+}
+
 _create_xray_service() {
     case "$INIT_SYSTEM" in
         systemd)
@@ -340,7 +385,73 @@ JSON
 }
 
 _validate_xray_config() {
-    "$XRAY_BIN" run -test -c "$1" >/dev/null 2>&1
+    "$XRAY_BIN" run -test -c "$1"
+}
+
+_find_mihomo_bin() {
+    local bin=""
+    for bin in mihomo clash-meta; do
+        if command -v "$bin" >/dev/null 2>&1; then
+            printf '%s' "$bin"
+            return 0
+        fi
+    done
+    return 1
+}
+
+_validate_mihomo_style_ss2022_reality() {
+    local node_ip="$1"
+    local port="$2"
+    local sni="$3"
+    local password="$4"
+
+    local mihomo_bin tmp
+    mihomo_bin="$(_find_mihomo_bin || true)"
+    if [ -z "$mihomo_bin" ]; then
+        _warn "未检测到 mihomo/clash-meta 核心，已跳过 Clash 写法校验。"
+        return 0
+    fi
+
+    tmp="$(mktemp /tmp/ss2022-mihomo-XXXXXX.yaml)"
+    cat > "$tmp" <<EOF_MIHOMO
+mixed-port: 7892
+allow-lan: false
+mode: rule
+log-level: silent
+proxies:
+  - name: "ss2022-reality-validate"
+    type: ss
+    server: "$node_ip"
+    port: $port
+    cipher: "2022-blake3-aes-256-gcm"
+    password: "$password"
+    udp: true
+    udp-over-tcp: true
+    udp-over-tcp-version: 1
+    tls: true
+    servername: "$sni"
+    skip-cert-verify: true
+    reality-opts:
+      public-key: "$REALITY_PUBLIC_KEY"
+      short-id: "$REALITY_SHORT_ID"
+proxy-groups:
+  - name: "节点选择"
+    type: select
+    proxies:
+      - "ss2022-reality-validate"
+rules:
+  - MATCH,节点选择
+EOF_MIHOMO
+
+    if ! "$mihomo_bin" -t -f "$tmp"; then
+        rm -f "$tmp"
+        _error "Clash/Mihomo 写法校验失败，已取消写入。上面那几行就是核心的原始报错。"
+        return 1
+    fi
+
+    rm -f "$tmp"
+    _success "Clash/Mihomo 写法校验通过。"
+    return 0
 }
 
 _append_inbound_checked() {
@@ -351,7 +462,7 @@ _append_inbound_checked() {
 
     if ! _validate_xray_config "$tmp"; then
         rm -f "$tmp"
-        _error "新配置未通过 Xray 校验，已取消写入。"
+        _error "新配置未通过 Xray 校验，已取消写入。上面那几行就是 Xray 的原始报错。"
         return 1
     fi
 
@@ -470,7 +581,7 @@ _write_client_template() {
                   UoTVersion: 1
                 },
                 streamSettings: {
-                  network: "raw",
+                  network: "tcp",
                   security: "reality",
                   realitySettings: {
                     serverName: $server_name,
@@ -540,6 +651,7 @@ _add_ss2022_reality() {
 
     password="$(openssl rand -base64 32)"
     _generate_reality_keys || return 1
+    _validate_mihomo_style_ss2022_reality "$node_ip" "$port" "$sni" "$password" || return 1
     listen_host="$(_detect_listen_host)"
 
     inbound=$(jq -n \
@@ -561,11 +673,11 @@ _add_ss2022_reality() {
               password: $password
             },
             streamSettings: {
-              network: "raw",
+              network: "tcp",
               security: "reality",
               realitySettings: {
                 show: false,
-                target: ($sni + ":443"),
+                dest: ($sni + ":443"),
                 xver: 0,
                 serverNames: [$sni],
                 privateKey: $private_key,
@@ -587,7 +699,7 @@ _add_ss2022_reality() {
     echo -e "${YELLOW}加密:${NC} 2022-blake3-aes-256-gcm"
     echo -e "${YELLOW}SS 密钥:${NC} ${password}"
     echo -e "${YELLOW}SNI:${NC} ${sni}"
-    echo -e "${YELLOW}Reality Target:${NC} ${sni}:443"
+    echo -e "${YELLOW}Reality Target:${NC} ${sni}:443 (固定)"
     echo -e "${YELLOW}REALITY PublicKey:${NC} ${REALITY_PUBLIC_KEY}"
     echo -e "${YELLOW}REALITY ShortID:${NC} ${REALITY_SHORT_ID}"
     echo -e "${YELLOW}监听地址:${NC} ${listen_host}"
@@ -597,6 +709,20 @@ _add_ss2022_reality() {
     echo -e "${YELLOW}说明:${NC} 只需自定义监听端口和 SNI；Reality target 固定为 SNI:443。服务端只监听 TCP，由客户端通过 udp-over-tcp=sp.v1 承载 UDP，更适合 Alpine/LXC。"
 }
 
+
+_restart_xray() {
+    if [ ! -x "$XRAY_BIN" ]; then
+        _error "请先安装 Xray-core。"
+        return 1
+    fi
+
+    if _manage_xray_service restart; then
+        _success "Xray 已重启。"
+    else
+        _error "Xray 重启失败。"
+        return 1
+    fi
+}
 
 _uninstall_xray() {
     local answer=""
@@ -628,13 +754,25 @@ _uninstall_xray() {
 
 _show_menu() {
     clear
+    local xray_version=""
+    local xray_status=""
+
+    if [ -x "$XRAY_BIN" ]; then
+        xray_version="$(_get_xray_version)"
+        [ -n "$xray_version" ] && xray_version=" v${xray_version}"
+    fi
+    xray_status="$(_get_xray_status_text)"
+
     echo "=================================================="
     echo " Xray 极简脚本 v${SCRIPT_VERSION}"
     echo " Alpine / LXC 兼容版"
     echo "=================================================="
+    echo -e " Xray${CYAN}${xray_version}${NC}: ${xray_status}"
+    echo "--------------------------------------------------"
     echo " 1) 安装/更新 Xray-core"
     echo " 2) 添加 SS2022 + REALITY"
-    echo " 3) 卸载 Xray"
+    echo " 3) 重启 Xray"
+    echo " 4) 卸载 Xray"
     echo " 0) 退出"
     echo "=================================================="
 }
@@ -646,11 +784,12 @@ main() {
 
     while true; do
         _show_menu
-        read -rp "请选择 [0-3]: " choice
+        read -rp "请选择 [0-4]: " choice
         case "$choice" in
             1) _install_xray ;;
             2) _add_ss2022_reality ;;
-            3) _uninstall_xray ;;
+            3) _restart_xray ;;
+            4) _uninstall_xray ;;
             0) exit 0 ;;
             *) _error "无效选择。" ;;
         esac
