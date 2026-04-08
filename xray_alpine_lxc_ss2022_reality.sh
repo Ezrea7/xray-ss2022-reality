@@ -860,7 +860,7 @@ _add_shadowsocks_2022_reality_xray() {
 
     _atomic_modify_json "$XRAY_CONFIG" ".inbounds += [$inbound]" || return 1
 
-    local qx_link="shadowsocks=${link_ip}:${port}, method=${method}, password=${password}, obfs=over-tls, obfs-host=${sni}, reality-base64-pubkey=${REALITY_PUBLIC_KEY}, reality-hex-shortid=${REALITY_SHORT_ID}, udp-relay=true, udp-over-tcp=sp.v1, tag=${name}"
+    local qx_link="shadowsocks=${link_ip}:${port}, method=${method}, password=${password}, obfs=over-tls, obfs-host=${sni}, tls-verification=true, reality-base64-pubkey=${REALITY_PUBLIC_KEY}, reality-hex-shortid=${REALITY_SHORT_ID}, udp-relay=true, udp-over-tcp=sp.v1, tag=${name}"
 
     _save_xray_meta "$tag" "$name" "$qx_link" \
         "publicKey=$REALITY_PUBLIC_KEY" \
@@ -1367,5 +1367,3 @@ _xray_menu() {
 # ============================================================
 _install_script_shortcut
 _xray_menu
-
-
