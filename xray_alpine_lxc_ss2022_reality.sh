@@ -3,7 +3,7 @@
 # xray_manager.sh — Xray-core 节点管理子脚本
 # 与 singbox.sh 共存，共享 clash.yaml
 # ============================================================
-XRAY_SCRIPT_VERSION="2.1.2"
+XRAY_SCRIPT_VERSION="2.1.1"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 SCRIPT_CMD_NAME="jb"
 SCRIPT_INSTALL_PATH="/usr/local/bin/${SCRIPT_CMD_NAME}"
@@ -436,7 +436,7 @@ _build_reality_stream() {
             "security": "reality",
             "realitySettings": {
                 "show": false,
-                "target": ($sni + ":443"),
+                "dest": ($sni + ":443"),
                 "xver": 0,
                 "serverNames": [$sni],
                 "privateKey": $pk,
@@ -853,7 +853,7 @@ _add_shadowsocks_2022_reality_xray() {
             settings: {
                 method: $method,
                 password: $password,
-                network: "tcp"
+                network: "tcp,udp"
             },
             streamSettings: $stream
         }')
