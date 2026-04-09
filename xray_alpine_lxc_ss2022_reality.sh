@@ -516,7 +516,7 @@ _add_vless_reality_vision() {
     local link_ip="$node_ip"; [[ "$node_ip" == *":"* ]] && link_ip="[$node_ip]"
     
     # 构建 inbound JSON
-    local stream=$(_build_reality_stream "tcp" "$sni" "$REALITY_PRIVATE_KEY" "$REALITY_SHORT_ID")
+    local stream=$(_build_reality_stream "raw" "$sni" "$REALITY_PRIVATE_KEY" "$REALITY_SHORT_ID")
     local inbound=$(jq -n --arg tag "$tag" --argjson port "$port" --arg uuid "$uuid" --arg flow "$flow" --argjson stream "$stream" \
         '{
             "tag": $tag,
@@ -838,7 +838,7 @@ _add_shadowsocks_2022_reality_xray() {
     local tag="xray-ss2022-reality-${port}"
     local link_ip="$node_ip"; [[ "$node_ip" == *":"* ]] && link_ip="[$node_ip]"
 
-    local stream=$(_build_reality_stream "tcp" "$sni" "$REALITY_PRIVATE_KEY" "$REALITY_SHORT_ID")
+    local stream=$(_build_reality_stream "raw" "$sni" "$REALITY_PRIVATE_KEY" "$REALITY_SHORT_ID")
     local inbound=$(jq -n \
         --arg tag "$tag" \
         --argjson port "$port" \
